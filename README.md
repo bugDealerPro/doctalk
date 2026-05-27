@@ -75,8 +75,8 @@ chainlit run app/main.py
 | `EMBEDDING_DIMENSIONS` | `1536` | Vector dimension (must match model) |
 | `DOCTALK_DATABASE_URL` | local Postgres URL | App database connection string |
 | `MAX_PDF_SIZE_MB` | `20` | Upload size limit |
-| `CHUNK_SIZE` | `1000` | Characters per chunk |
-| `CHUNK_OVERLAP` | `200` | Chunk overlap |
+| `CHUNK_SIZE` | `800` | Characters per chunk |
+| `CHUNK_OVERLAP` | `150` | Chunk overlap |
 | `RETRIEVAL_TOP_K` | `4` | Chunks retrieved per question |
 
 ## What is implemented

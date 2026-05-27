@@ -58,7 +58,7 @@ def load_settings() -> Settings:
         embedding_model=os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
         embedding_dimensions=_get_int("EMBEDDING_DIMENSIONS", 1536),
         max_pdf_size_mb=_get_int("MAX_PDF_SIZE_MB", 20),
-        chunk_size=_get_int("CHUNK_SIZE", 1000),
-        chunk_overlap=_get_int("CHUNK_OVERLAP", 200),
+        chunk_size=_get_int("CHUNK_SIZE", 800),
+        chunk_overlap=_get_int("CHUNK_OVERLAP", 150),
         retrieval_top_k=_get_int("RETRIEVAL_TOP_K", 4),
     )
