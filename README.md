@@ -1,6 +1,6 @@
 # DocTalk
 
-Minimal PDF chat application: upload a PDF in Chainlit, ask questions, and get answers grounded in retrieved document chunks stored in Postgres with pgvector.
+Minimal PDF chat application: upload one or more PDFs in Chainlit, ask questions across the session corpus, and get answers grounded in retrieved document chunks stored in Postgres with pgvector.
 
 ## Problem statement
 
@@ -23,13 +23,13 @@ flowchart LR
 
 **Flow**
 
-1. **Upload** — Chainlit receives a PDF, `services.ingest_pdf_file` writes it to a temp file, extracts text, chunks it, embeds chunks, stores metadata + vectors, then deletes the temp file.
+1. **Upload** — Chainlit receives PDF(s), `services.ingest_pdf_file` writes each to a temp file, extracts text, chunks it, embeds chunks, stores metadata + vectors, then deletes the temp file. New uploads are appended to the current session corpus.
 2. **Chat** — User question enters a LangGraph workflow:
-   - validate a document exists for the session
-   - retrieve top-k chunks via cosine similarity
+   - validate the session has indexed documents
+   - retrieve top-k chunks across all session documents via cosine similarity
    - call an OpenAI-compatible LLM with retrieved context
-   - return answer + chunk previews
-3. **Storage** — One active document per Chainlit session. Re-upload replaces the previous document for that session.
+   - return answer with focused source previews (`filename`, chunk index)
+3. **Storage** — Multiple documents per Chainlit `session_id`. Retrieval is always scoped to the current session.
 
 ## How to run
 
@@ -47,7 +47,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Open [http://localhost:8000](http://localhost:8000), upload a text-based PDF, then ask questions.
+Open [http://localhost:8000](http://localhost:8000), upload one or more text-based PDFs, then ask questions.
 
 ### Local development (without Docker)
 
@@ -78,10 +78,12 @@ chainlit run app/main.py
 | `CHUNK_SIZE` | `800` | Characters per chunk |
 | `CHUNK_OVERLAP` | `150` | Chunk overlap |
 | `RETRIEVAL_TOP_K` | `4` | Chunks retrieved per question |
+| `MAX_SOURCE_PREVIEWS` | `3` | Max source lines shown in answers |
 
 ## What is implemented
 
-- Chainlit UI with PDF upload and chat
+- Chainlit UI with multi-PDF upload and chat
+- Multi-document session corpus with session-scoped retrieval
 - PDF text extraction with `pypdf`
 - Recursive character chunking
 - OpenAI-compatible embeddings + chat completions
@@ -104,7 +106,7 @@ chainlit run app/main.py
 ## Known limitations
 
 - **Text-only PDFs** — scanned documents without a text layer will fail gracefully.
-- **One document per session** — uploading again replaces the previous document.
+- **Session corpus only** — retrieval never crosses Chainlit sessions.
 - **Synchronous ingestion** — large PDFs block the request until indexing completes.
 - **Session-scoped retrieval** — no cross-user document sharing.
 - **Embedding dimension coupling** — changing embedding models requires matching `EMBEDDING_DIMENSIONS` and likely re-indexing.
@@ -141,4 +143,4 @@ tests/
 pytest
 ```
 
-Tests cover PDF failure handling, chunking, empty chunk rejection, temp-file cleanup, and graph behavior when no document is uploaded. LLM and embedding calls are mocked.
+Tests cover PDF failure handling, chunking, empty chunk rejection, temp-file cleanup, graph behavior when no document is uploaded, and multi-document session retrieval (Nythera vs Zorvessa fixtures). LLM and embedding calls are mocked in unit tests; retrieval integration tests use deterministic fake embeddings against Postgres when available.
