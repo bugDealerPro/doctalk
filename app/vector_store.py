@@ -21,11 +21,16 @@ class DocumentRecord:
     id: str
     session_id: str
     filename: str
+    page_count: int
+    chunk_count: int
 
 
 @dataclass(frozen=True)
 class RetrievedChunk:
     id: str
+    document_id: str
+    session_id: str
+    filename: str
     chunk_index: int
     content: str
     score: float
@@ -46,14 +51,19 @@ def embed_texts(texts: Sequence[str], settings: Settings) -> list[list[float]]:
     return embeddings.embed_documents(list(texts))
 
 
-def delete_document_for_session(session_id: str, settings: Settings) -> None:
+def count_documents_for_session(session_id: str, settings: Settings) -> int:
     with get_connection(settings) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM documents WHERE session_id = %s",
+                "SELECT COUNT(*) AS count FROM documents WHERE session_id = %s",
                 (session_id,),
             )
-    logger.info("Removed previous document for session %s", session_id)
+            row = cur.fetchone()
+    return int(row["count"]) if row else 0
+
+
+def session_has_documents(session_id: str, settings: Settings) -> bool:
+    return count_documents_for_session(session_id, settings) > 0
 
 
 def store_document_with_chunks(
@@ -61,12 +71,12 @@ def store_document_with_chunks(
     session_id: str,
     filename: str,
     chunks: Sequence[str],
+    page_count: int,
     settings: Settings,
 ) -> DocumentRecord:
     if not chunks:
         raise ValueError("Cannot store a document with no text chunks.")
 
-    delete_document_for_session(session_id, settings)
     vectors = embed_texts(chunks, settings)
     document_id = str(uuid.uuid4())
 
@@ -74,11 +84,13 @@ def store_document_with_chunks(
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO documents (id, session_id, filename)
-                VALUES (%s, %s, %s)
-                RETURNING id, session_id, filename
+                INSERT INTO documents (
+                    id, session_id, filename, page_count, chunk_count
+                )
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id, session_id, filename, page_count, chunk_count
                 """,
-                (document_id, session_id, filename),
+                (document_id, session_id, filename, page_count, len(chunks)),
             )
             row = cur.fetchone()
             assert row is not None
@@ -86,15 +98,18 @@ def store_document_with_chunks(
             for index, (content, embedding) in enumerate(zip(chunks, vectors)):
                 cur.execute(
                     """
-                    INSERT INTO chunks (document_id, chunk_index, content, embedding)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO document_chunks (
+                        document_id, session_id, filename, chunk_index, content, embedding
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     """,
-                    (document_id, index, content, embedding),
+                    (document_id, session_id, filename, index, content, embedding),
                 )
 
     logger.info(
-        "Stored document %s with %d chunks for session %s",
+        "Stored document %s (%s) with %d chunks for session %s",
         document_id,
+        filename,
         len(chunks),
         session_id,
     )
@@ -102,37 +117,14 @@ def store_document_with_chunks(
         id=str(row["id"]),
         session_id=row["session_id"],
         filename=row["filename"],
-    )
-
-
-def get_document_for_session(
-    session_id: str, settings: Settings
-) -> DocumentRecord | None:
-    with get_connection(settings) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT id, session_id, filename
-                FROM documents
-                WHERE session_id = %s
-                ORDER BY created_at DESC
-                LIMIT 1
-                """,
-                (session_id,),
-            )
-            row = cur.fetchone()
-    if row is None:
-        return None
-    return DocumentRecord(
-        id=str(row["id"]),
-        session_id=row["session_id"],
-        filename=row["filename"],
+        page_count=row["page_count"],
+        chunk_count=row["chunk_count"],
     )
 
 
 def retrieve_relevant_chunks(
     *,
-    document_id: str,
+    session_id: str,
     question: str,
     settings: Settings,
 ) -> list[RetrievedChunk]:
@@ -144,27 +136,56 @@ def retrieve_relevant_chunks(
                 """
                 SELECT
                     id,
+                    document_id,
+                    session_id,
+                    filename,
                     chunk_index,
                     content,
                     1 - (embedding <=> %s::vector) AS score
-                FROM chunks
-                WHERE document_id = %s
+                FROM document_chunks
+                WHERE session_id = %s
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
                 """,
-                (query_embedding, document_id, query_embedding, settings.retrieval_top_k),
+                (
+                    query_embedding,
+                    session_id,
+                    query_embedding,
+                    settings.retrieval_top_k * 2,
+                ),
             )
             rows = cur.fetchall()
 
-    return [
-        RetrievedChunk(
-            id=str(row["id"]),
-            chunk_index=row["chunk_index"],
-            content=row["content"],
-            score=float(row["score"]),
-        )
-        for row in rows
-    ]
+    return _dedupe_chunks(
+        [
+            RetrievedChunk(
+                id=str(row["id"]),
+                document_id=str(row["document_id"]),
+                session_id=row["session_id"],
+                filename=row["filename"],
+                chunk_index=row["chunk_index"],
+                content=row["content"],
+                score=float(row["score"]),
+            )
+            for row in rows
+        ],
+        limit=settings.retrieval_top_k,
+    )
+
+
+def _dedupe_chunks(chunks: list[RetrievedChunk], limit: int) -> list[RetrievedChunk]:
+    seen_ids: set[str] = set()
+    seen_content: set[str] = set()
+    deduped: list[RetrievedChunk] = []
+    for chunk in chunks:
+        if chunk.id in seen_ids or chunk.content in seen_content:
+            continue
+        seen_ids.add(chunk.id)
+        seen_content.add(chunk.content)
+        deduped.append(chunk)
+        if len(deduped) >= limit:
+            break
+    return deduped
 
 
 def _query_terms(query: str) -> list[str]:
@@ -178,7 +199,7 @@ def _term_hit_count(text: str, terms: list[str]) -> int:
 
 
 def select_citation_chunks(
-    chunks: list[RetrievedChunk], question: str
+    chunks: list[RetrievedChunk], question: str, max_sources: int = 3
 ) -> list[RetrievedChunk]:
     """Keep only chunks that plausibly support the answer for source display."""
     if not chunks:
@@ -186,21 +207,18 @@ def select_citation_chunks(
 
     terms = _query_terms(question)
     if not terms:
-        return [max(chunks, key=lambda chunk: chunk.score)]
+        return chunks[:max_sources]
 
-    matching = [
-        chunk
-        for chunk in chunks
-        if _term_hit_count(chunk.content, terms) > 0
-    ]
+    matching = [chunk for chunk in chunks if _term_hit_count(chunk.content, terms) > 0]
     if matching:
-        return sorted(
+        ranked = sorted(
             matching,
             key=lambda chunk: (_term_hit_count(chunk.content, terms), chunk.score),
             reverse=True,
         )
+        return _dedupe_chunks(ranked, limit=max_sources)
 
-    return [max(chunks, key=lambda chunk: chunk.score)]
+    return chunks[:max_sources]
 
 
 def _best_sentences(text: str, terms: list[str], max_length: int) -> str:
@@ -245,3 +263,8 @@ def preview_chunk(content: str, query: str = "", max_length: int = 160) -> str:
     if len(text) <= max_length:
         return text
     return text[: max_length - 3].rstrip() + "..."
+
+
+def format_source_reference(chunk: RetrievedChunk, question: str) -> str:
+    preview = preview_chunk(chunk.content, question)
+    return f"{chunk.filename} (chunk {chunk.chunk_index + 1}): {preview}"
