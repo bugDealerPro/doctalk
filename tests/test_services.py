@@ -10,10 +10,8 @@ def test_ingest_pdf_file_deletes_temp_file(settings, mocker, tmp_path) -> None:
         return_value=mocker.Mock(text="Sample text for chunking.", page_count=1),
     )
     mocker.patch("app.services.chunk_text", return_value=["Sample text for chunking."])
-    mocker.patch(
-        "app.services.store_document_with_chunks",
-        return_value=mocker.Mock(id="doc-1", session_id="s1", filename="file.pdf"),
-    )
+    mocker.patch("app.services.store_document_with_chunks")
+    mocker.patch("app.services.count_documents_for_session", return_value=1)
 
     created_paths: list[str] = []
     original_named = __import__("tempfile").NamedTemporaryFile
