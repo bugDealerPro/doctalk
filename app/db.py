@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import contextmanager
 from typing import Generator
 
@@ -67,8 +68,26 @@ def init_db(settings: Settings) -> None:
             cur.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_chunks_embedding
-                ON chunks USING ivfflat (embedding vector_cosine_ops)
-                WITH (lists = 100)
+                ON chunks USING hnsw (embedding vector_cosine_ops)
                 """
             )
     logger.info("Database initialized")
+
+
+def wait_for_db(settings: Settings, retries: int = 30, delay_seconds: float = 1.0) -> None:
+    """Retry database initialization until Postgres is ready."""
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            init_db(settings)
+            return
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "Database not ready (attempt %d/%d): %s",
+                attempt,
+                retries,
+                exc,
+            )
+            time.sleep(delay_seconds)
+    raise RuntimeError("Database initialization failed") from last_error

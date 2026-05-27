@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from dotenv import load_dotenv
+
 
 def _get_int(name: str, default: int) -> int:
     value = os.getenv(name)
@@ -35,6 +37,8 @@ class Settings:
 
 
 def load_settings() -> Settings:
+    load_dotenv()
+
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
         raise ValueError("OPENAI_API_KEY environment variable is required")

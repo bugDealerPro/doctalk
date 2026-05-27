@@ -9,7 +9,7 @@ import chainlit as cl
 from chainlit.element import Element
 
 from app.config import Settings, load_settings
-from app.db import init_db
+from app.db import wait_for_db
 from app.pdf_loader import PdfProcessingError
 from app.services import answer_question, ingest_pdf_file
 
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 def bootstrap(settings: Settings) -> None:
-    init_db(settings)
+    wait_for_db(settings)
 
 
 settings = load_settings()
