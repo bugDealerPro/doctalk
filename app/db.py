@@ -32,7 +32,8 @@ def get_connection(settings: Settings) -> Generator[psycopg.Connection, None, No
 
 def init_db(settings: Settings) -> None:
     """Create extensions and tables if they do not exist."""
-    with get_connection(settings) as conn:
+    conn = psycopg.connect(settings.database_url, row_factory=dict_row)
+    try:
         with conn.cursor() as cur:
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
             cur.execute(
@@ -46,18 +47,17 @@ def init_db(settings: Settings) -> None:
                 """
             )
             cur.execute(
-                """
+                f"""
                 CREATE TABLE IF NOT EXISTS chunks (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
                     chunk_index INT NOT NULL,
                     content TEXT NOT NULL,
-                    embedding vector(%s),
+                    embedding vector({settings.embedding_dimensions}),
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     UNIQUE (document_id, chunk_index)
                 )
-                """,
-                (settings.embedding_dimensions,),
+                """
             )
             cur.execute(
                 """
@@ -71,6 +71,12 @@ def init_db(settings: Settings) -> None:
                 ON chunks USING hnsw (embedding vector_cosine_ops)
                 """
             )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
     logger.info("Database initialized")
 
 
