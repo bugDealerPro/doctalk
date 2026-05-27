@@ -16,6 +16,7 @@ from app.vector_store import (
     get_document_for_session,
     preview_chunk,
     retrieve_relevant_chunks,
+    select_citation_chunks,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,9 +93,10 @@ def generate_answer(state: GraphState, settings: Settings) -> GraphState:
         [SystemMessage(content=QA_SYSTEM_PROMPT), HumanMessage(content=prompt)]
     )
     answer = str(response.content).strip()
+    cited_chunks = select_citation_chunks(state["chunks"], state["question"])
     sources = [
-        f"Chunk {chunk.chunk_index + 1}: {preview_chunk(chunk.content)}"
-        for chunk in state["chunks"]
+        f"Chunk {chunk.chunk_index + 1}: {preview_chunk(chunk.content, state['question'])}"
+        for chunk in cited_chunks
     ]
     logger.info(
         "Generated answer for session %s using %d chunks",

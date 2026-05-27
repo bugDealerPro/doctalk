@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from typing import Sequence
@@ -166,8 +167,81 @@ def retrieve_relevant_chunks(
     ]
 
 
-def preview_chunk(content: str, max_length: int = 240) -> str:
+def _query_terms(query: str) -> list[str]:
+    terms = re.findall(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*", query)
+    return sorted({term for term in terms if len(term) > 2}, key=len, reverse=True)
+
+
+def _term_hit_count(text: str, terms: list[str]) -> int:
+    lowered = text.lower()
+    return sum(1 for term in terms if term.lower() in lowered)
+
+
+def select_citation_chunks(
+    chunks: list[RetrievedChunk], question: str
+) -> list[RetrievedChunk]:
+    """Keep only chunks that plausibly support the answer for source display."""
+    if not chunks:
+        return []
+
+    terms = _query_terms(question)
+    if not terms:
+        return [max(chunks, key=lambda chunk: chunk.score)]
+
+    matching = [
+        chunk
+        for chunk in chunks
+        if _term_hit_count(chunk.content, terms) > 0
+    ]
+    if matching:
+        return sorted(
+            matching,
+            key=lambda chunk: (_term_hit_count(chunk.content, terms), chunk.score),
+            reverse=True,
+        )
+
+    return [max(chunks, key=lambda chunk: chunk.score)]
+
+
+def _best_sentences(text: str, terms: list[str], max_length: int) -> str:
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
+    if not sentences:
+        return text[:max_length]
+
+    ranked = sorted(
+        sentences,
+        key=lambda sentence: _term_hit_count(sentence, terms),
+        reverse=True,
+    )
+    selected: list[str] = []
+    length = 0
+    for sentence in ranked:
+        if terms and _term_hit_count(sentence, terms) == 0:
+            continue
+        if length + len(sentence) > max_length and selected:
+            break
+        selected.append(sentence)
+        length += len(sentence) + 1
+        if length >= max_length:
+            break
+
+    if selected:
+        return " ".join(selected)[:max_length].rstrip()
+
+    return ranked[0][:max_length].rstrip()
+
+
+def preview_chunk(content: str, query: str = "", max_length: int = 160) -> str:
+    """Show a short excerpt focused on query-related sentences."""
     text = " ".join(content.split())
+    terms = _query_terms(query)
+
+    if terms:
+        snippet = _best_sentences(text, terms, max_length)
+        if _term_hit_count(snippet, terms) > 0:
+            return snippet if len(snippet) <= max_length else snippet[: max_length - 3] + "..."
+
     if len(text) <= max_length:
         return text
     return text[: max_length - 3].rstrip() + "..."
