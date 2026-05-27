@@ -13,10 +13,11 @@ from app.config import Settings
 from app.prompts import QA_SYSTEM_PROMPT, QA_USER_PROMPT
 from app.vector_store import (
     RetrievedChunk,
-    get_document_for_session,
+    format_source_reference,
     preview_chunk,
     retrieve_relevant_chunks,
     select_citation_chunks,
+    session_has_documents,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,8 +26,6 @@ logger = logging.getLogger(__name__)
 class GraphState(TypedDict):
     session_id: str
     question: str
-    document_id: str | None
-    filename: str | None
     chunks: list[RetrievedChunk]
     answer: str
     sources: list[str]
@@ -44,29 +43,21 @@ def _build_llm(settings: Settings) -> ChatOpenAI:
     return ChatOpenAI(**kwargs)
 
 
-def validate_document(state: GraphState, settings: Settings) -> GraphState:
-    document = get_document_for_session(state["session_id"], settings)
-    if document is None:
+def validate_documents(state: GraphState, settings: Settings) -> GraphState:
+    if not session_has_documents(state["session_id"], settings):
         return {
             **state,
-            "document_id": None,
-            "filename": None,
-            "error": "Please upload a PDF before asking questions.",
+            "error": "Please upload one or more PDFs before asking questions.",
         }
-    return {
-        **state,
-        "document_id": document.id,
-        "filename": document.filename,
-        "error": None,
-    }
+    return {**state, "error": None}
 
 
 def retrieve_chunks(state: GraphState, settings: Settings) -> GraphState:
-    if state.get("error") or not state.get("document_id"):
+    if state.get("error"):
         return state
 
     chunks = retrieve_relevant_chunks(
-        document_id=state["document_id"],
+        session_id=state["session_id"],
         question=state["question"],
         settings=settings,
     )
@@ -74,7 +65,7 @@ def retrieve_chunks(state: GraphState, settings: Settings) -> GraphState:
         return {
             **state,
             "chunks": [],
-            "error": "No relevant passages were found in the uploaded document.",
+            "error": "No relevant passages were found in the uploaded documents.",
         }
     return {**state, "chunks": chunks, "error": None}
 
@@ -84,7 +75,7 @@ def generate_answer(state: GraphState, settings: Settings) -> GraphState:
         return {**state, "answer": state["error"], "sources": []}
 
     context = "\n\n".join(
-        f"[Excerpt {chunk.chunk_index + 1}]\n{chunk.content}"
+        f"[{chunk.filename} | chunk {chunk.chunk_index + 1}]\n{chunk.content}"
         for chunk in state["chunks"]
     )
     prompt = QA_USER_PROMPT.format(context=context, question=state["question"])
@@ -93,10 +84,13 @@ def generate_answer(state: GraphState, settings: Settings) -> GraphState:
         [SystemMessage(content=QA_SYSTEM_PROMPT), HumanMessage(content=prompt)]
     )
     answer = str(response.content).strip()
-    cited_chunks = select_citation_chunks(state["chunks"], state["question"])
+    cited_chunks = select_citation_chunks(
+        state["chunks"],
+        state["question"],
+        max_sources=settings.max_source_previews,
+    )
     sources = [
-        f"Chunk {chunk.chunk_index + 1}: {preview_chunk(chunk.content, state['question'])}"
-        for chunk in cited_chunks
+        format_source_reference(chunk, state["question"]) for chunk in cited_chunks
     ]
     logger.info(
         "Generated answer for session %s using %d chunks",
@@ -123,7 +117,7 @@ def build_qa_graph(settings: Settings):
 
     graph.add_node(
         "validate",
-        lambda state: validate_document(state, settings),
+        lambda state: validate_documents(state, settings),
     )
     graph.add_node(
         "retrieve",
@@ -160,8 +154,6 @@ def run_qa_workflow(
     initial_state: GraphState = {
         "session_id": session_id,
         "question": question,
-        "document_id": None,
-        "filename": None,
         "chunks": [],
         "answer": "",
         "sources": [],
