@@ -42,15 +42,47 @@ def init_db(settings: Settings) -> None:
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     session_id TEXT NOT NULL,
                     filename TEXT NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    page_count INT NOT NULL DEFAULT 0,
+                    chunk_count INT NOT NULL DEFAULT 0
                 )
                 """
             )
             cur.execute(
+                "ALTER TABLE documents ADD COLUMN IF NOT EXISTS page_count INT NOT NULL DEFAULT 0"
+            )
+            cur.execute(
+                "ALTER TABLE documents ADD COLUMN IF NOT EXISTS chunk_count INT NOT NULL DEFAULT 0"
+            )
+            cur.execute(
+                """
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'documents' AND column_name = 'created_at'
+                    ) AND NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'documents' AND column_name = 'uploaded_at'
+                    ) THEN
+                        ALTER TABLE documents RENAME COLUMN created_at TO uploaded_at;
+                    END IF;
+                END $$;
+                """
+            )
+            cur.execute(
+                """
+                ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                """
+            )
+            cur.execute(
                 f"""
-                CREATE TABLE IF NOT EXISTS chunks (
+                CREATE TABLE IF NOT EXISTS document_chunks (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                     document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+                    session_id TEXT NOT NULL,
+                    filename TEXT NOT NULL,
                     chunk_index INT NOT NULL,
                     content TEXT NOT NULL,
                     embedding vector({settings.embedding_dimensions}),
@@ -61,14 +93,53 @@ def init_db(settings: Settings) -> None:
             )
             cur.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_chunks_document_id
-                ON chunks (document_id)
+                CREATE INDEX IF NOT EXISTS idx_documents_session_id
+                ON documents (session_id)
                 """
             )
             cur.execute(
                 """
-                CREATE INDEX IF NOT EXISTS idx_chunks_embedding
-                ON chunks USING hnsw (embedding vector_cosine_ops)
+                CREATE INDEX IF NOT EXISTS idx_document_chunks_session_id
+                ON document_chunks (session_id)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_document_chunks_document_id
+                ON document_chunks (document_id)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_document_chunks_embedding
+                ON document_chunks USING hnsw (embedding vector_cosine_ops)
+                """
+            )
+            cur.execute(
+                """
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.tables
+                        WHERE table_name = 'chunks'
+                    ) THEN
+                        INSERT INTO document_chunks (
+                            id, document_id, session_id, filename, chunk_index, content, embedding
+                        )
+                        SELECT
+                            c.id,
+                            c.document_id,
+                            d.session_id,
+                            d.filename,
+                            c.chunk_index,
+                            c.content,
+                            c.embedding
+                        FROM chunks c
+                        JOIN documents d ON d.id = c.document_id
+                        ON CONFLICT (document_id, chunk_index) DO NOTHING;
+                        DROP TABLE chunks;
+                    END IF;
+                END $$;
                 """
             )
         conn.commit()
