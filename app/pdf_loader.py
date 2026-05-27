@@ -6,6 +6,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
@@ -61,6 +62,17 @@ def extract_text_from_pdf(path: Path) -> ExtractedDocument:
         )
 
     return ExtractedDocument(text=text, page_count=len(reader.pages))
+
+
+def chunk_text(text: str, settings: Settings) -> list[str]:
+    """Split document text into overlapping chunks."""
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=settings.chunk_size,
+        chunk_overlap=settings.chunk_overlap,
+        separators=["\n\n", "\n", ". ", " ", ""],
+    )
+    chunks = [chunk.strip() for chunk in splitter.split_text(text) if chunk.strip()]
+    return chunks
 
 
 def validate_pdf_size(file_size_bytes: int, settings: Settings) -> None:
