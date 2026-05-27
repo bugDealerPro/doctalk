@@ -47,8 +47,26 @@ def _build_embeddings(settings: Settings) -> OpenAIEmbeddings:
 
 
 def embed_texts(texts: Sequence[str], settings: Settings) -> list[list[float]]:
-    embeddings = _build_embeddings(settings)
-    return embeddings.embed_documents(list(texts))
+    """Embed texts in batches to avoid API size and timeout limits on large documents."""
+    text_list = list(texts)
+    if not text_list:
+        return []
+
+    client = _build_embeddings(settings)
+    batch_size = max(1, settings.embedding_batch_size)
+    vectors: list[list[float]] = []
+
+    for start in range(0, len(text_list), batch_size):
+        batch = text_list[start : start + batch_size]
+        vectors.extend(client.embed_documents(batch))
+        logger.debug(
+            "Embedded batch %d-%d of %d texts",
+            start + 1,
+            start + len(batch),
+            len(text_list),
+        )
+
+    return vectors
 
 
 def count_documents_for_session(session_id: str, settings: Settings) -> int:

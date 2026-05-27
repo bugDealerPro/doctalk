@@ -20,6 +20,7 @@ def settings() -> Settings:
         chunk_overlap=50,
         retrieval_top_k=4,
         max_source_previews=3,
+        embedding_batch_size=64,
     )
 
 

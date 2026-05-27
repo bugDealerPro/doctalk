@@ -35,6 +35,7 @@ class Settings:
     chunk_overlap: int
     retrieval_top_k: int
     max_source_previews: int
+    embedding_batch_size: int
 
 
 def load_settings() -> Settings:
@@ -63,4 +64,5 @@ def load_settings() -> Settings:
         chunk_overlap=_get_int("CHUNK_OVERLAP", 150),
         retrieval_top_k=_get_int("RETRIEVAL_TOP_K", 4),
         max_source_previews=_get_int("MAX_SOURCE_PREVIEWS", 3),
+        embedding_batch_size=_get_int("EMBEDDING_BATCH_SIZE", 64),
     )
