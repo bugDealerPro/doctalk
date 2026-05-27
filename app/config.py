@@ -49,7 +49,7 @@ def load_settings() -> Settings:
 
     return Settings(
         database_url=os.getenv(
-            "DATABASE_URL",
+            "DOCTALK_DATABASE_URL",
             "postgresql://doctalk:doctalk@localhost:5432/doctalk",
         ),
         openai_api_key=api_key,

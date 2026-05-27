@@ -73,7 +73,7 @@ chainlit run app/main.py
 | `LLM_MODEL` | `gpt-4o-mini` | Chat model |
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model |
 | `EMBEDDING_DIMENSIONS` | `1536` | Vector dimension (must match model) |
-| `DATABASE_URL` | local Postgres URL | SQLAlchemy/psycopg connection string |
+| `DOCTALK_DATABASE_URL` | local Postgres URL | App database connection string |
 | `MAX_PDF_SIZE_MB` | `20` | Upload size limit |
 | `CHUNK_SIZE` | `1000` | Characters per chunk |
 | `CHUNK_OVERLAP` | `200` | Chunk overlap |
