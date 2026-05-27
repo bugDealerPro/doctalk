@@ -127,3 +127,47 @@ def get_document_for_session(
         session_id=row["session_id"],
         filename=row["filename"],
     )
+
+
+def retrieve_relevant_chunks(
+    *,
+    document_id: str,
+    question: str,
+    settings: Settings,
+) -> list[RetrievedChunk]:
+    query_embedding = embed_texts([question], settings)[0]
+
+    with get_connection(settings) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    id,
+                    chunk_index,
+                    content,
+                    1 - (embedding <=> %s::vector) AS score
+                FROM chunks
+                WHERE document_id = %s
+                ORDER BY embedding <=> %s::vector
+                LIMIT %s
+                """,
+                (query_embedding, document_id, query_embedding, settings.retrieval_top_k),
+            )
+            rows = cur.fetchall()
+
+    return [
+        RetrievedChunk(
+            id=str(row["id"]),
+            chunk_index=row["chunk_index"],
+            content=row["content"],
+            score=float(row["score"]),
+        )
+        for row in rows
+    ]
+
+
+def preview_chunk(content: str, max_length: int = 240) -> str:
+    text = " ".join(content.split())
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 3].rstrip() + "..."
