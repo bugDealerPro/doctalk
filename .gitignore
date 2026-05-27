@@ -9,4 +9,4 @@ __pycache__/
 venv/
 *.pdf
 !tests/fixtures/
-.chainlit/
+.chainlit/.files/
