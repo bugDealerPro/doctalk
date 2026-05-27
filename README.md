@@ -1,6 +1,6 @@
 # DocTalk
 
-Minimal PDF chat application built with **Chainlit** and **LangGraph**. Upload one or more PDFs in a chat session, index them in **Postgres + pgvector**, and ask questions grounded in retrieved chunks with focused source previews.
+Lightweight PDF chat application built with **Chainlit** and **LangGraph**. Upload one or more PDFs in a chat session, index them in **Postgres + pgvector**, and ask questions grounded in retrieved chunks with focused source previews.
 
 ## Problem statement
 
@@ -11,7 +11,7 @@ Reviewers often need to ask questions across PDFs without reading every page. Do
 - **Multi-PDF sessions** — upload several PDFs in one Chainlit chat; each upload is appended to the session corpus
 - **Session-scoped retrieval** — vector search runs only on the current `session_id`, never across other chats
 - **LangGraph QA workflow** — validate → retrieve → generate with explicit prompts
-- **Grounded answers** — LLM uses retrieved excerpts only; partial answers when the doc mentions a topic but does not fully answer
+- **Grounded answers** — LLM answers from retrieved excerpts only; states when the document does not contain the requested information
 - **Focused sources** — up to 3 previews in the form `filename.pdf (chunk N): …`, centered on query terms
 - **Robust PDF ingestion** — size limits, invalid PDF handling, empty-text detection; temp files deleted after processing
 - **OpenAI-compatible APIs** — works with OpenAI or any compatible gateway via `OPENAI_BASE_URL`
@@ -68,8 +68,24 @@ flowchart TB
 **Q&A flow (LangGraph)**
 
 1. **Validate** — session has at least one indexed document.
-2. **Retrieve** — top-k chunks across all session documents (cosine similarity, deduplicated).
+2. **Retrieve** — top-k chunks across all session documents (deduplicated).
 3. **Generate** — LLM answer from excerpts; citations filtered to query-relevant chunks (max 3).
+
+**Retrieval**
+
+Retrieval uses cosine similarity search over pgvector embeddings scoped to the current Chainlit session.
+
+## Validated against
+
+- Small single-page PDFs
+- 50-page PDFs
+- 200-page PDFs (~800 chunks)
+- Table-heavy PDFs
+- Noisy retrieval datasets
+- Multi-document conflicting corpora
+- Empty PDFs
+- Corrupted PDFs
+- Image-only PDFs without OCR
 
 ## Data model
 
