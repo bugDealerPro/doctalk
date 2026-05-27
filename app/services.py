@@ -15,16 +15,27 @@ from app.pdf_loader import (
     extract_text_from_pdf,
     validate_pdf_size,
 )
-from app.vector_store import DocumentRecord, store_document_with_chunks
+from app.vector_store import (
+    count_documents_for_session,
+    store_document_with_chunks,
+)
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class IngestResult:
-    document: DocumentRecord
-    chunk_count: int
+    filename: str
     page_count: int
+    chunk_count: int
+    session_document_count: int
+
+
+@dataclass(frozen=True)
+class ChatResult:
+    answer: str
+    sources: list[str]
+    error: str | None
 
 
 def ingest_pdf_file(
@@ -47,29 +58,24 @@ def ingest_pdf_file(
         if not chunks:
             raise PdfProcessingError("The PDF did not produce any usable text chunks.")
 
-        document = store_document_with_chunks(
+        store_document_with_chunks(
             session_id=session_id,
             filename=filename,
             chunks=chunks,
+            page_count=extracted.page_count,
             settings=settings,
         )
+        document_count = count_documents_for_session(session_id, settings)
         return IngestResult(
-            document=document,
-            chunk_count=len(chunks),
+            filename=filename,
             page_count=extracted.page_count,
+            chunk_count=len(chunks),
+            session_document_count=document_count,
         )
     finally:
         if temp_path is not None and temp_path.exists():
             temp_path.unlink(missing_ok=True)
             logger.debug("Deleted temporary PDF %s", temp_path)
-
-
-@dataclass(frozen=True)
-class ChatResult:
-    answer: str
-    sources: list[str]
-    filename: str | None
-    error: str | None
 
 
 def answer_question(
@@ -86,6 +92,5 @@ def answer_question(
     return ChatResult(
         answer=result.get("answer", ""),
         sources=result.get("sources", []),
-        filename=result.get("filename"),
         error=result.get("error"),
     )

@@ -6,7 +6,7 @@ name = "DocTalk"
 description = "Upload a PDF and chat with its contents."
 
 [features]
-spontaneous_file_upload = { enabled = true, accept = ["application/pdf"], max_files = 1, max_size_mb = 20 }
+spontaneous_file_upload = { enabled = true, accept = ["application/pdf"], max_files = 10, max_size_mb = 20 }
 
 [meta]
 generated_by = "1.0.0"

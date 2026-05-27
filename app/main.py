@@ -34,7 +34,8 @@ async def on_chat_start() -> None:
     await cl.Message(
         content=(
             "Welcome to **DocTalk**.\n\n"
-            "Upload a PDF to get started, then ask questions about its contents."
+            "Upload one or more PDFs to build a session corpus, then ask questions "
+            "across all uploaded documents."
         )
     ).send()
 
@@ -50,14 +51,15 @@ async def on_message(message: cl.Message) -> None:
     ]
 
     if pdf_files:
-        await _handle_upload(session_id, pdf_files[0])
+        for pdf_element in pdf_files:
+            await _handle_upload(session_id, pdf_element)
         if message.content.strip():
             await _handle_question(session_id, message.content.strip())
         return
 
     if not message.content.strip():
         await cl.Message(
-            content="Please upload a PDF or ask a question about your document."
+            content="Please upload one or more PDFs, or ask a question about them."
         ).send()
         return
 
@@ -79,9 +81,8 @@ async def _handle_upload(session_id: str, pdf_element: Element) -> None:
         )
         cl.user_session.set("document_ready", True)
         processing_msg.content = (
-            f"Uploaded `{result.document.filename}` "
-            f"({result.page_count} pages, {result.chunk_count} chunks indexed). "
-            "You can now ask questions about it."
+            f"Uploaded `{result.filename}`. "
+            f"Current session has {result.session_document_count} document(s) indexed."
         )
     except PdfProcessingError as exc:
         logger.warning("PDF processing failed for session %s: %s", session_id, exc)
