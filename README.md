@@ -235,7 +235,7 @@ Example multi-doc scenarios (see `tests/test_multi_document.py`):
 - “Compare Nythera and Zorvessa moons.” → Etris/Vallun vs Pala/Rix/Ond
 - Retrieval from another session must not leak into the current session
 
-## Production architecture (simple)
+## Production architecture
 
 For production, keep uploads fast and move heavy work to background workers.
 
@@ -257,10 +257,10 @@ flowchart TB
     R --> API
 ```
 
-### Why this setup
+### What changed and why
 
-- Upload returns quickly; no long blocking wait.
-- Workers process extraction, chunking, and embeddings in the background.
-- Queue + retries make ingestion more reliable.
-- Object storage keeps files durable across machines.
-- Retrieval stays fast by reading vectors from `pgvector`.
+- **Background workers**: move ingestion off the request path so uploads return quickly.
+- **Job queue**: buffer jobs and support retries when transient failures happen.
+- **Object storage**: keep uploaded files durable and accessible across machines.
+- **Metadata DB**: track upload/job state so the UI can show clear progress.
+- **Vector DB (`pgvector`)**: keep embeddings indexed for fast semantic retrieval.
