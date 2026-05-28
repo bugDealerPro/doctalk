@@ -234,3 +234,33 @@ Example multi-doc scenarios (see `tests/test_multi_document.py`):
 - “Which planet has magnetic storms every 29 hours?” → Zorvessa
 - “Compare Nythera and Zorvessa moons.” → Etris/Vallun vs Pala/Rix/Ond
 - Retrieval from another session must not leak into the current session
+
+## Production architecture (simple)
+
+For production, keep uploads fast and move heavy work to background workers.
+
+```mermaid
+flowchart TB
+    U[User] --> API[Chainlit API]
+    API --> OBJ[(Object Storage)]
+    API --> META[(Postgres Metadata)]
+    API --> Q[(Job Queue)]
+
+    Q --> W[Ingestion Workers]
+    W --> OBJ
+    W --> V[(pgvector)]
+    W --> META
+
+    API --> R[Retrieval Service]
+    R --> V
+    R --> LLM[LLM Provider]
+    R --> API
+```
+
+### Why this setup
+
+- Upload returns quickly; no long blocking wait.
+- Workers process extraction, chunking, and embeddings in the background.
+- Queue + retries make ingestion more reliable.
+- Object storage keeps files durable across machines.
+- Retrieval stays fast by reading vectors from `pgvector`.
